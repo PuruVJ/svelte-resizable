@@ -1,0 +1,50 @@
+{
+  "name": "svelte-resizable",
+  "version": "0.0.0",
+  "description": "Svelte port for re-resizable",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "typings": "dist/index.d.ts",
+  "files": [
+    "dist/"
+  ],
+  "sideEffects": false,
+  "exports": {
+    "import": "./dist/index.js",
+    "default": "./dist/index.js",
+    "require": "./dist/index.cjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PuruVJ/svelte-resizable.git"
+  },
+  "bugs": {
+    "url": "https://github.com/PuruVJ/svelte-resizable/issues"
+  },
+  "type": "module",
+  "scripts": {
+    "watch": "tsup --watch",
+    "prepublishOnly": "tsup"
+  },
+  "keywords": [
+    "svelte",
+    "draggable",
+    "resizable",
+    "svelte resizable",
+    "fast",
+    "small",
+    "tiny",
+    "performant"
+  ],
+  "author": "Puru Vijay",
+  "license": "MIT",
+  "devDependencies": {
+    "csstype": "^3.0.8",
+    "tsup": "^4.12.5",
+    "typescript": "^4.3.5"
+  },
+  "dependencies": {
+    "fast-memoize": "^2.5.2"
+  }
+}
