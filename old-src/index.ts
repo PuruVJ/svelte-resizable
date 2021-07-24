@@ -76,6 +76,7 @@ export type SvelteResizableOptions = {
   snapGap?: number;
 
   bounds?: 'parent' | string | SvelteResizableBoundsCoords;
+  boundsByDirection?: boolean;
 
   size?: Size;
 
@@ -176,9 +177,20 @@ export function resizable(node: HTMLElement, options: SvelteResizableOptions = {
     lockAspectRatioExtraHeight = 0,
     scale = 1,
     resizeRatio = 1,
+    snap: propsSnap,
+
     snapGap = 0,
+
     size,
     defaultSize,
+
+    minHeight,
+    maxHeight,
+    minWidth,
+    maxWidth,
+
+    bounds,
+    boundsByDirection,
   } = options;
 
   let ratio = 1;
@@ -215,8 +227,12 @@ export function resizable(node: HTMLElement, options: SvelteResizableOptions = {
     height: 0,
   };
 
+  let flexDir: 'row' | 'column';
+
   /** This element will cover the node while being dragged, and destroyed after it has been dragged */
-  let backdropStyles = {
+  let backdropEl: HTMLDivElement;
+
+  let backdropStyles: CSSProperties = {
     height: '100%',
     width: '100%',
     backgroundColor: 'rgba(0,0,0,0)',
@@ -235,7 +251,161 @@ export function resizable(node: HTMLElement, options: SvelteResizableOptions = {
 
   // bindEvents(onMouseUp)
 
-  function onResizeStop() {
+  function calculateNewSizeFromDirection(clientX: number, clientY: number) {
+    let newWidth = original.width;
+    let newHeight = original.height;
+
+    const extraHeight = lockAspectRatioExtraHeight || 0;
+    const extraWidth = lockAspectRatioExtraWidth || 0;
+    if (hasDirection('right', direction)) {
+      newWidth = original.width + ((clientX - original.x) * resizeRatio) / scale;
+      if (lockAspectRatio) {
+        newHeight = (newWidth - extraWidth) / ratio + extraHeight;
+      }
+    }
+    if (hasDirection('left', direction)) {
+      newWidth = original.width - ((clientX - original.x) * resizeRatio) / scale;
+      if (lockAspectRatio) {
+        newHeight = (newWidth - extraWidth) / ratio + extraHeight;
+      }
+    }
+    if (hasDirection('bottom', direction)) {
+      newHeight = original.height + ((clientY - original.y) * resizeRatio) / scale;
+      if (lockAspectRatio) {
+        newWidth = (newHeight - extraHeight) * ratio + extraWidth;
+      }
+    }
+    if (hasDirection('top', direction)) {
+      newHeight = original.height - ((clientY - original.y) * resizeRatio) / scale;
+      if (lockAspectRatio) {
+        newWidth = (newHeight - extraHeight) * ratio + extraWidth;
+      }
+    }
+    return { newWidth, newHeight };
+  }
+
+  function calculateNewMaxFromBoundary(maxWidth?: number, maxHeight?: number) {
+    const widthByDirection = boundsByDirection && hasDirection('left', direction);
+    const heightByDirection = boundsByDirection && hasDirection('top', direction);
+    let boundWidth;
+    let boundHeight;
+    if (bounds === 'parent') {
+      const parent = node.parentNode as HTMLElement;
+      if (parent) {
+        boundWidth = widthByDirection
+          ? resizableRight - parentLeft
+          : parent.offsetWidth + (parentLeft - resizableLeft);
+        boundHeight = heightByDirection
+          ? resizableBottom - parentTop
+          : parent.offsetHeight + (parentTop - resizableTop);
+      }
+    } else if (bounds === 'window') {
+      boundWidth = widthByDirection ? resizableRight : window.innerWidth - resizableLeft;
+      boundHeight = heightByDirection ? resizableBottom : window.innerHeight - resizableTop;
+    } else if (typeof bounds === 'string') {
+      // It's a selector
+      const boundEl = document.querySelector<HTMLElement>(bounds);
+
+      if (boundEl === null)
+        throw new Error(
+          "The selector supplied for `bounds` couldn't be found. Please ensure it exists."
+        );
+
+      boundWidth = widthByDirection
+        ? resizableRight - targetLeft
+        : boundEl.offsetWidth + (targetLeft - resizableLeft);
+      boundHeight = heightByDirection
+        ? resizableBottom - targetTop
+        : boundEl.offsetHeight + (targetTop - resizableTop);
+    }
+
+    if (boundWidth && Number.isFinite(boundWidth)) {
+      maxWidth = maxWidth && maxWidth < boundWidth ? maxWidth : boundWidth;
+    }
+    if (boundHeight && Number.isFinite(boundHeight)) {
+      maxHeight = maxHeight && maxHeight < boundHeight ? maxHeight : boundHeight;
+    }
+    return { maxWidth, maxHeight };
+  }
+
+  function calculateNewSizeFromAspectRatio(
+    newWidth: number,
+    newHeight: number,
+    max: { width?: number; height?: number },
+    min: { width?: number; height?: number }
+  ) {
+    const computedMinWidth = typeof min.width === 'undefined' ? 10 : min.width;
+    const computedMaxWidth =
+      typeof max.width === 'undefined' || max.width < 0 ? newWidth : max.width;
+    const computedMinHeight = typeof min.height === 'undefined' ? 10 : min.height;
+    const computedMaxHeight =
+      typeof max.height === 'undefined' || max.height < 0 ? newHeight : max.height;
+    const extraHeight = lockAspectRatioExtraHeight || 0;
+    const extraWidth = lockAspectRatioExtraWidth || 0;
+
+    if (lockAspectRatio) {
+      const extraMinWidth = (computedMinHeight - extraHeight) * ratio + extraWidth;
+      const extraMaxWidth = (computedMaxHeight - extraHeight) * ratio + extraWidth;
+      const extraMinHeight = (computedMinWidth - extraWidth) / ratio + extraHeight;
+      const extraMaxHeight = (computedMaxWidth - extraWidth) / ratio + extraHeight;
+      const lockedMinWidth = Math.max(computedMinWidth, extraMinWidth);
+      const lockedMaxWidth = Math.min(computedMaxWidth, extraMaxWidth);
+      const lockedMinHeight = Math.max(computedMinHeight, extraMinHeight);
+      const lockedMaxHeight = Math.min(computedMaxHeight, extraMaxHeight);
+      newWidth = clamp(newWidth, lockedMinWidth, lockedMaxWidth);
+      newHeight = clamp(newHeight, lockedMinHeight, lockedMaxHeight);
+    } else {
+      newWidth = clamp(newWidth, computedMinWidth, computedMaxWidth);
+      newHeight = clamp(newHeight, computedMinHeight, computedMaxHeight);
+    }
+    return { newWidth, newHeight };
+  }
+
+  function createSizeForCssProperty(
+    newSize: number | string,
+    kind: 'width' | 'height'
+  ): number | string {
+    const propSize = propsSize?.[kind];
+    return sizeState[kind] === 'auto' &&
+      original[kind] === newSize &&
+      (typeof propSize === 'undefined' || propSize === 'auto')
+      ? 'auto'
+      : newSize;
+  }
+
+  function setBoundingClientRect() {
+    // For parent boundary
+    if (bounds === 'parent') {
+      const parent = node.parentNode as HTMLElement;
+      if (parent) {
+        const parentRect = parent.getBoundingClientRect();
+        parentLeft = parentRect.left;
+        parentTop = parentRect.top;
+      }
+    }
+
+    // For target(html element) boundary
+    if (bounds && typeof bounds === 'string') {
+      const boundEl = document.querySelector<HTMLElement>(bounds);
+
+      if (boundEl === null)
+        throw new Error('Selector supplied for `bounds` can not be found. Make sure it exists');
+
+      const targetRect = boundEl.getBoundingClientRect();
+
+      targetLeft = targetRect.left;
+      targetTop = targetRect.top;
+    }
+
+    // For boundary
+    const { left, top, right, bottom } = node.getBoundingClientRect();
+    resizableLeft = left;
+    resizableRight = right;
+    resizableTop = top;
+    resizableBottom = bottom;
+  }
+
+  function onMouseUp() {
     if (!isResizing) return;
 
     const size = getSize(node);
@@ -254,10 +424,196 @@ export function resizable(node: HTMLElement, options: SvelteResizableOptions = {
       sizeState.width = size.width;
     }
 
+    // Remove backdrop
+    removeBackdrop(node, backdropEl);
+
     isResizing = false;
   }
 
-  function onResize(e: MouseEvent | TouchEvent) {}
+  function onMouseMove(e: MouseEvent | TouchEvent) {
+    if (!isResizing) return;
+
+    if (isTouchEvent(e)) {
+      try {
+        e.preventDefault();
+        e.stopPropagation();
+      } catch {}
+    }
+
+    const { clientX, clientY } = isTouchEvent(e) ? e.touches[0] : e;
+
+    const parentSize = getParentSize(node);
+
+    const max = calculateNewMax(
+      parentSize,
+      window.innerWidth,
+      window.innerHeight,
+      maxWidth,
+      maxHeight,
+      minWidth,
+      minHeight
+    );
+
+    maxWidth = max.maxWidth;
+    maxHeight = max.maxHeight;
+    minWidth = max.minWidth;
+    minHeight = max.minHeight;
+
+    // Calculate new size
+    let { newHeight, newWidth }: NewSize = calculateNewSizeFromDirection(clientX, clientY);
+
+    // Calculate max size from boundary settings
+    const boundaryMax = calculateNewMaxFromBoundary(maxWidth, maxHeight);
+
+    const newSize = calculateNewSizeFromAspectRatio(
+      newWidth,
+      newHeight,
+      { width: boundaryMax.maxWidth, height: boundaryMax.maxHeight },
+      { width: minWidth, height: minHeight }
+    );
+
+    newWidth = newSize.newWidth;
+    newHeight = newSize.newHeight;
+
+    if (grid) {
+      const newGridWidth = snap(newWidth, grid[0]);
+      const newGridHeight = snap(newHeight, grid[1]);
+      const gap = snapGap || 0;
+      newWidth = gap === 0 || Math.abs(newGridWidth - newWidth) <= gap ? newGridWidth : newWidth;
+      newHeight =
+        gap === 0 || Math.abs(newGridHeight - newHeight) <= gap ? newGridHeight : newHeight;
+    }
+
+    if (propsSnap && propsSnap.x) {
+      newWidth = findClosestSnap(newWidth, propsSnap.x, snapGap);
+    }
+    if (propsSnap && propsSnap.y) {
+      newHeight = findClosestSnap(newHeight, propsSnap.y, snapGap);
+    }
+
+    const delta = {
+      width: newWidth - original.width,
+      height: newHeight - original.height,
+    };
+
+    if (sizeState.width && typeof sizeState.width === 'string') {
+      if (endsWith(sizeState.width, '%')) {
+        const percent = (newWidth / parentSize.width) * 100;
+        newWidth = `${percent}%`;
+      } else if (endsWith(sizeState.width, 'vw')) {
+        const vw = (newWidth / window.innerWidth) * 100;
+        newWidth = `${vw}vw`;
+      } else if (endsWith(sizeState.width, 'vh')) {
+        const vh = (newWidth / window.innerHeight) * 100;
+        newWidth = `${vh}vh`;
+      }
+    }
+
+    if (sizeState.height && typeof sizeState.height === 'string') {
+      if (endsWith(sizeState.height, '%')) {
+        const percent = (newHeight / parentSize.height) * 100;
+        newHeight = `${percent}%`;
+      } else if (endsWith(sizeState.height, 'vw')) {
+        const vw = (newHeight / window.innerWidth) * 100;
+        newHeight = `${vw}vw`;
+      } else if (endsWith(sizeState.height, 'vh')) {
+        const vh = (newHeight / window.innerHeight) * 100;
+        newHeight = `${vh}vh`;
+      }
+    }
+
+    const newState: {
+      width: string | number;
+      height: string | number;
+      flexBasis?: string | number;
+    } = {
+      width: createSizeForCssProperty(newWidth, 'width'),
+      height: createSizeForCssProperty(newHeight, 'height'),
+    };
+
+    if (flexDir === 'row') {
+      newState.flexBasis = newState.width;
+    } else if (flexDir === 'column') {
+      newState.flexBasis = newState.height;
+    }
+
+    sizeState.width = newState.width;
+    sizeState.height = newState.height;
+    flexBasis = newState.flexBasis?.toString();
+
+    node.dispatchEvent(
+      new CustomEvent('svelte-resizable:resize', {
+        detail: { direction, delta },
+      })
+    );
+  }
+
+  function onResizeStart(e: MouseEvent | TouchEvent, directionParam: SvelteResizableDirection) {
+    let clientX = 0;
+    let clientY = 0;
+
+    if (isMouseEvent(e)) {
+      ({ clientX, clientY } = e);
+
+      // When user click with right button the resize is stuck in resizing mode
+      // until users clicks again, dont continue if right click is used.
+      // HACK: MouseEvent does not have `which` from flow-bin v0.68.
+      if (e.which === 3) return;
+    } else if (isTouchEvent(e)) {
+      ({ clientX, clientY } = e.touches[0]);
+    }
+
+    node.dispatchEvent(
+      new CustomEvent('svelte-resizable:start', { detail: { direction: directionParam } })
+    );
+
+    if (size) {
+      if (typeof size.height !== 'undefined' && size.height !== sizeState.height)
+        sizeState.height = size.height;
+
+      if (typeof size.width !== 'undefined' && size.width !== sizeState.width)
+        sizeState.width = size.width;
+    }
+
+    const localSize = getSize(node);
+    // For lockAspectRatio case
+    ratio =
+      typeof lockAspectRatio === 'number' ? lockAspectRatio : localSize.width / localSize.height;
+
+    let localFlexBasis;
+    const computedStyle = getComputedStyle(node);
+    if (computedStyle.flexBasis !== 'auto') {
+      const parent = node.parentNode as HTMLElement;
+      if (parent) {
+        const dir = getComputedStyle(parent).flexDirection;
+        flexDir = dir.startsWith('row') ? 'row' : 'column';
+        localFlexBasis = computedStyle.flexBasis;
+      }
+    }
+
+    // For boundary
+    setBoundingClientRect();
+    bindEvents(onMouseUp, onMouseMove);
+
+    original = {
+      x: clientX,
+      y: clientY,
+      width: localSize.width,
+      height: localSize.height,
+    };
+
+    isResizing = true;
+
+    backdropStyles = {
+      ...backdropStyles,
+      cursor: getComputedStyle(e.target as HTMLElement).cursor || 'auto',
+    };
+
+    backdropEl = appendBackdrop(node, backdropStyles);
+
+    direction = directionParam;
+    flexBasis = localFlexBasis;
+  }
 }
 
 const clamp = memoize((n: number, min: number, max: number): number =>
@@ -485,7 +841,7 @@ function removeBackdrop(node: HTMLElement, backdropEl: HTMLDivElement) {
 // EVENTS
 //
 
-function bindEvents(onMouseUp: () => void, onMouseMove: () => void) {
+function bindEvents(onMouseUp: () => void, onMouseMove: (e: MouseEvent | TouchEvent) => void) {
   const listen = addEventListener;
 
   listen('mouseup', onMouseUp);
