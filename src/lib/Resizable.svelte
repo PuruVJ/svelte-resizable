@@ -91,7 +91,7 @@
 
   export let size: SvelteResizableSize = undefined;
 
-  export let grid = [1, 1];
+  export let grid = undefined;
 
   let propsSnap: { x?: number[]; y?: number[] } = undefined;
   export { propsSnap as snap };
@@ -200,7 +200,7 @@
     let newWidth = original.width;
     let newHeight = original.height;
 
-    console.log(original)
+    console.log({ original });
 
     const extraHeight = lockAspectRatioExtraHeight || 0;
     const extraWidth = lockAspectRatioExtraWidth || 0;
@@ -328,11 +328,13 @@
         const parentRect = parent.getBoundingClientRect();
         parentLeft = parentRect.left;
         parentTop = parentRect.top;
+
+        console.log(parentRect);
       }
     }
 
     // For target(html element) boundary
-    if (bounds && typeof bounds === 'string') {
+    if (bounds !== 'parent' && typeof bounds === 'string') {
       const boundEl = document.querySelector<HTMLElement>(bounds);
 
       if (boundEl === null)
@@ -437,7 +439,7 @@
     direction = e.detail.direction;
     flexBasis = localFlexBasis;
 
-    ensureMinMaxDimensions();
+    Promise.resolve().then(ensureMinMaxDimensions);
     containerEl.style.flexBasis = flexBasis;
   }
 
@@ -462,7 +464,7 @@
 
     // Calculate new size
     let { newHeight, newWidth }: NewSize = calculateNewSizeFromDirection(dimensions);
-    console.log({ newHeight, newWidth });
+    // console.log({ newHeight, newWidth });
 
     // Calculate max size from boundary settings
     const boundaryMax = calculateNewMaxFromBoundary(maxWidth, maxHeight);
@@ -537,8 +539,10 @@
 
     const localStyleSize = sizeStyle();
 
-    containerEl.style.width = localStyleSize.width;
-    containerEl.style.height = localStyleSize.height;
+    Promise.resolve().then(() => {
+      containerEl.style.width = localStyleSize.width;
+      containerEl.style.height = localStyleSize.height;
+    });
   }
 
   function onMouseUp(e: MouseEvent | TouchEvent) {
@@ -650,7 +654,7 @@
 
 <style>
   .svelte-resizable-wrapper {
-    position: absolute;
+    position: relative;
 
     box-sizing: border-box;
     flex-shrink: 0;

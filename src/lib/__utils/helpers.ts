@@ -162,7 +162,7 @@ export function getSize(node: HTMLElement) {
 
   // INFO: Use original width or height if set auto.
   width = node.style.width !== 'auto' ? node.getBoundingClientRect().width : originalWidth;
-  height = node.style.height !== 'auto' ? node.getBoundingClientRect().width : originalHeight;
+  height = node.style.height !== 'auto' ? node.getBoundingClientRect().height : originalHeight;
 
   // Restore original position
   node.style.position = orgPosition;
