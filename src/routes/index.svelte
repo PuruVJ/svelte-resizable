@@ -1,10 +1,10 @@
 <script lang="ts">
-  import SvelteResizable from '../../package/Resizable.svelte';
+  import Resizable from '$lib/Resizable.svelte';
 </script>
 
 <h1>Welcome to SvelteKit</h1>
 <p>Visit <a href="https://kit.svelte.dev">kit.svelte.dev</a> to read the documentation</p>
 
-<SvelteResizable>
-  <div slot="" />
-</SvelteResizable>
+<Resizable defaultSize={{ height: '400px', width: '60vw' }}>
+  <div style="height: 100%; width: 100%; background-color: #6002ee" />
+</Resizable>
