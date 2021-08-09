@@ -129,6 +129,9 @@
     height: 0,
   };
 
+  let offsetX = 0;
+  let offsetY = 0;
+
   // For parent boundary
   let parentLeft = 0;
   let parentTop = 0;
@@ -199,8 +202,6 @@
   function calculateNewSizeFromDirection({ clientX, clientY }) {
     let newWidth = original.width;
     let newHeight = original.height;
-
-    console.log({ original });
 
     const extraHeight = lockAspectRatioExtraHeight || 0;
     const extraWidth = lockAspectRatioExtraWidth || 0;
@@ -328,8 +329,6 @@
         const parentRect = parent.getBoundingClientRect();
         parentLeft = parentRect.left;
         parentTop = parentRect.top;
-
-        console.log(parentRect);
       }
     }
 
@@ -539,10 +538,29 @@
 
     const localStyleSize = sizeStyle();
 
+    let shouldChangeTransformVal = false;
+    if (hasDirection('top', direction)) {
+      offsetY = -delta.height;
+      shouldChangeTransformVal = true;
+    }
+
+    if (hasDirection('left', direction)) {
+      offsetX = -delta.width;
+      shouldChangeTransformVal = true;
+    }
+
     Promise.resolve().then(() => {
       containerEl.style.width = localStyleSize.width;
       containerEl.style.height = localStyleSize.height;
+
+      if (shouldChangeTransformVal) {
+        // containerEl.style.transform = `translate3d(${offsetX}px, ${offsetY}px, 0)`;
+        // containerEl.style.left = `${offsetX}px`;
+        // containerEl.style.top = `${offsetY}px`;
+      }
     });
+
+    console.log(delta);
   }
 
   function onMouseUp(e: MouseEvent | TouchEvent) {
@@ -576,7 +594,9 @@
   {#if isResizing}
     <div class="backdrop" style="cursor: {backdropCursor};" />
   {/if}
+
   <slot />
+
   <div class="svelte-resizers-container">
     <!-- top -->
     {#if enable.top}
